@@ -1,18 +1,4 @@
-// safari-download.js
-//
-// Runs inside the Echo360 section page in Safari, after safari-manifest.js has
-// left the lecture list on window.__echo.
-//
-// Downloads the audio from the page itself. This works because the request
-// carries Safari's existing session automatically - the CloudFront cookies are
-// HttpOnly, so no script can read them, but the browser still sends them - and
-// because content.echo360.net.au serves the audio CORS-readable, so the bytes
-// can be read back and handed to the browser as a download.
-//
-// That is why nothing here needs cookies, a second browser, or a login.
-//
-// get-lectures.sh prepends "window.__skip = [...]" with the files that already
-// have a transcript, so nothing gets fetched twice.
+
 
 window.__dl = {status: 'running', done: [], failed: [], skipped: 0, current: null};
 
@@ -43,7 +29,6 @@ window.__dl = {status: 'running', done: [], failed: [], skipped: 0, current: nul
         a.click();
         document.body.removeChild(a);
 
-        // Give Safari a moment to take the blob before releasing it.
         await new Promise(function (res) { setTimeout(res, 1500); });
         URL.revokeObjectURL(a.href);
 
