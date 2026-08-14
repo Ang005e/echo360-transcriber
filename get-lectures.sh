@@ -7,6 +7,8 @@ BASE="/Users/angusblakeuni/Documents/transcriptions"
 DOWNLOADS="$HOME/Downloads"
 VAULT="$HOME/Obsidian/MyVault/1_Projects"
 MODEL="mlx-community/parakeet-tdt-0.6b-v3"
+FAST_MODEL="mlx-community/parakeet-tdt_ctc-110m"
+CHUNK=480
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP="$(mktemp -d)"
@@ -67,6 +69,33 @@ release_safari() {
 }
 
 trap 'rm -rf "$TMP"; close_our_tab' EXIT
+
+FAST=0
+argv=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --fast) FAST=1 ;;
+    -h|--help)
+      echo "Usage: $(basename "$0") [--fast] [UNIT_CODE]"
+      echo
+      echo "  UNIT_CODE  e.g. CITS2211. Omit it to use the Echo360 page already"
+      echo "             open in Safari."
+      echo "  --fast     Transcribe with $FAST_MODEL."
+      echo "             Roughly twice as quick, but it misspells subject"
+      echo "             vocabulary, so the transcripts search poorly. Use it"
+      echo "             for a rough read, not for the notes you keep."
+      exit 0 ;;
+    --) shift; argv+=(${@+"$@"}); break ;;
+    -*) echo "Unknown option: $1 (try --help)"; exit 1 ;;
+    *) argv+=("$1") ;;
+  esac
+  shift
+done
+set -- ${argv[@]+"${argv[@]}"}
+
+if [ "$FAST" -eq 1 ]; then
+  MODEL="$FAST_MODEL"
+fi
 
 for tool in zip parakeet-mlx ffmpeg osascript; do
   if ! command -v "$tool" >/dev/null 2>&1; then
@@ -304,10 +333,16 @@ done
 
 if [ "${#todo[@]}" -gt 0 ]; then
   echo
-  echo "Transcribing ${#todo[@]} file(s) with parakeet-mlx (this is the slow part)..."
+  if [ "$FAST" -eq 1 ]; then
+    echo "Transcribing ${#todo[@]} file(s) in --fast mode ($(basename "$MODEL"))."
+    echo "Expect misspelled subject terms; these will search poorly in Obsidian."
+  else
+    echo "Transcribing ${#todo[@]} file(s) with parakeet-mlx (this is the slow part)..."
+  fi
   parakeet-mlx "${todo[@]}" \
     --model "$MODEL" \
     --local-attention \
+    --chunk-duration "$CHUNK" \
     --output-format txt \
     --output-dir "$TRANSCRIPTS"
 
