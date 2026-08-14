@@ -343,8 +343,7 @@ if [ "${#todo[@]}" -gt 0 ]; then
     --model "$MODEL" \
     --chunk-duration "$CHUNK" \
     --output-format txt \
-    --output-dir "$TRANSCRIPTS" \
-    --verbose
+    --output-dir "$TRANSCRIPTS"
 
   for f in ${todo[@]+"${todo[@]}"}; do
     t="$TRANSCRIPTS/${f%.mp3}.txt"
