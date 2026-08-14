@@ -8,7 +8,7 @@ DOWNLOADS="$HOME/Downloads"
 VAULT="$HOME/Obsidian/MyVault/1_Projects"
 MODEL="mlx-community/parakeet-tdt-0.6b-v3"
 FAST_MODEL="mlx-community/parakeet-tdt_ctc-110m"
-CHUNK=480
+CHUNK=120
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP="$(mktemp -d)"
@@ -341,13 +341,16 @@ if [ "${#todo[@]}" -gt 0 ]; then
   fi
   parakeet-mlx "${todo[@]}" \
     --model "$MODEL" \
-    --local-attention \
     --chunk-duration "$CHUNK" \
     --output-format txt \
-    --output-dir "$TRANSCRIPTS"
+    --output-dir "$TRANSCRIPTS" \
+    --verbose
 
-  for t in "$TRANSCRIPTS"/*.txt; do
-    mv "$t" "${t%.txt}.md"
+  for f in ${todo[@]+"${todo[@]}"}; do
+    t="$TRANSCRIPTS/${f%.mp3}.txt"
+    if [ -f "$t" ]; then
+      mv "$t" "${t%.txt}.md"
+    fi
   done
 
   silent=()

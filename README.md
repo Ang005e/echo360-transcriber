@@ -121,7 +121,9 @@ serves the audio CORS-readable, so the page reads the bytes back and saves them.
 - `MODEL`, `FAST_MODEL`, `CHUNK`, `VAULT` and the audio folder are set at the top
   of `get-lectures.sh`.
 - `CHUNK` is how many seconds of audio go through the model at once, currently
-  480.
+  120. Raising it gives the model more context to work with, but encoder
+  attention cost grows with the square of the chunk length, so large values need
+  `--local-attention` to stay within memory.
 
 ## Where to keep it
 
