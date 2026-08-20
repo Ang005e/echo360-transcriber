@@ -8,7 +8,9 @@ DOWNLOADS="$HOME/Downloads"
 VAULT="$HOME/Obsidian/MyVault/1_Projects"
 MODEL="mlx-community/parakeet-tdt-0.6b-v3"
 FAST_MODEL="mlx-community/parakeet-tdt_ctc-110m"
-CHUNK=120
+CHUNK=480
+ECHO_EMAIL="${ECHO_EMAIL:-25166813@student.uwa.edu.au}"
+COURSES_URL="https://echo360.net.au/courses"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP="$(mktemp -d)"
@@ -48,6 +50,91 @@ open_tab() {
   CREATED_INDEX="$(osascript -e 'tell application "Safari" to return (count of tabs of window 1)')"
   OUR_TAB_URL="echo360.net.au/courses"
   CREATED_TAB=1
+}
+
+# osascript failure modes worth naming. -1743 is macOS refusing to let the
+# parent app control Safari at all, which is what an MCP-launched run hits
+# before the Automation prompt is approved.
+check_apple_events() {
+  case "$1" in
+    *"Allow JavaScript from Apple Events"*)
+      echo
+      echo "Safari will not let scripts run in the page yet."
+      echo "Turn it on once: Safari > Develop menu > Allow JavaScript from Apple Events."
+      echo "(If there is no Develop menu: Settings > Advanced > Show features for web developers.)"
+      exit 1 ;;
+    *-1743*|*"Not authorized to send Apple events"*)
+      echo
+      echo "This app is not allowed to control Safari."
+      echo "Approve it in System Settings > Privacy & Security > Automation,"
+      echo "then run this again."
+      exit 1 ;;
+  esac
+}
+
+tab_url() {
+  osascript <<APPLESCRIPT 2>/dev/null || true
+tell application "Safari"
+  if (count of windows) < $CREATED_WINDOW then return ""
+  if (count of tabs of window $CREATED_WINDOW) < $CREATED_INDEX then return ""
+  return (URL of tab $CREATED_INDEX of window $CREATED_WINDOW as string)
+end tell
+APPLESCRIPT
+}
+
+# The courses page is a React app: the URL settles well before the search box
+# is on screen, so wait for the box itself rather than guessing at a sleep.
+wait_for_courses_ui() {
+  for _ in $(seq 1 25); do
+    ready="$(eval_js '(function(){var i=document.querySelectorAll("input");for(var k=0;k<i.length;k++){var h=((i[k].placeholder||"")+" "+(i[k].getAttribute("aria-label")||"")).toLowerCase();if(h.indexOf("search")!==-1)return "ready";}return "wait";})()' "echo360.net.au/courses" 2>/dev/null || echo wait)"
+    if [ "$ready" = "ready" ]; then return 0; fi
+    sleep 1
+  done
+  echo "The courses page never finished loading its search box."
+  exit 1
+}
+
+# Echo360 sessions lapse long before the Microsoft one does. When that happens
+# the courses page redirects to login.echo360.net.au, which wants an email and
+# nothing else - Safari's ESTSAUTHPERSISTENT cookie carries the rest. If
+# Microsoft asks for more than that, stop rather than sit at a prompt nobody is
+# watching.
+ensure_session() {
+  submitted=0
+  for i in $(seq 1 60); do
+    url="$(tab_url)"
+    case "$url" in
+      *login.echo360.net.au*)
+        if [ "$submitted" -eq 0 ]; then
+          echo "Not signed in to Echo360 - entering $ECHO_EMAIL"
+          printf 'window.__email = "%s";\n' "$ECHO_EMAIL" > "$TMP/login.js"
+          cat "$HERE/safari-login.js" >> "$TMP/login.js"
+          OUT_LOGIN="$(run_js "$TMP/login.js" "login.echo360.net.au" 2>&1 || true)"
+          check_apple_events "$OUT_LOGIN"
+          submitted=1
+        fi ;;
+      *login.microsoftonline.com*|*login.live.com*)
+        # Silent SSO passes through here in a couple of seconds. Lingering means
+        # a password, passkey or MFA prompt is on screen.
+        if [ "$i" -gt 25 ]; then
+          echo
+          echo "Microsoft is asking for more than an email address"
+          echo "(a password, passkey or MFA approval)."
+          echo "Sign in to Echo360 in Safari once, then run this again."
+          echo "Nothing has been downloaded."
+          exit 1
+        fi ;;
+      https://echo360.net.au/*|http://echo360.net.au/*)
+        if [ "$submitted" -eq 1 ]; then echo "Signed in."; fi
+        return 0 ;;
+    esac
+    sleep 1
+  done
+
+  echo
+  echo "Timed out waiting for the Echo360 courses page."
+  echo "Safari is on: ${url:-(no tab)}"
+  exit 1
 }
 
 close_our_tab() {
@@ -110,19 +197,17 @@ done
 if [ "$#" -ge 1 ]; then
   WANT="$1"
   echo "Looking up $WANT on the courses page..."
-  open_tab "https://echo360.net.au/courses"
-  sleep 5
+  open_tab "$COURSES_URL"
+  sleep 3
+  ensure_session
+  wait_for_courses_ui
 
   printf 'window.__unit = "%s";\n' "$WANT" > "$TMP/find.js"
   cat "$HERE/safari-find-section.js" >> "$TMP/find.js"
 
   FOUND="$(run_js "$TMP/find.js" "echo360.net.au/courses" 2>&1 || true)"
+  check_apple_events "$FOUND"
   case "$FOUND" in
-    *"Allow JavaScript from Apple Events"*)
-      echo
-      echo "Safari will not let scripts run in the page yet."
-      echo "Turn it on once: Safari > Develop menu > Allow JavaScript from Apple Events."
-      exit 1 ;;
     *NO_TAB*)
       echo "Could not open the Echo360 courses page in Safari."
       exit 1 ;;
@@ -140,6 +225,9 @@ if [ "$#" -ge 1 ]; then
     fi
     case "$FSTATUS" in error|timeout)
       echo "Could not search the courses page ($FSTATUS)."
+      if [ "$FSTATUS" = "error" ]; then
+        echo "  $(eval_js 'window.__find.error || "no detail"' 'echo360.net.au/courses')"
+      fi
       exit 1 ;;
     esac
   done
@@ -166,13 +254,8 @@ fi
 echo "Reading the lecture list from Safari..."
 OUT_JS="$(run_js "$HERE/safari-manifest.js" 2>&1 || true)"
 
+check_apple_events "$OUT_JS"
 case "$OUT_JS" in
-  *"Allow JavaScript from Apple Events"*)
-    echo
-    echo "Safari will not let scripts run in the page yet."
-    echo "Turn it on once: Safari > Develop menu > Allow JavaScript from Apple Events."
-    echo "(If there is no Develop menu: Settings > Advanced > Show features for web developers.)"
-    exit 1 ;;
   *NO_TAB*|*NO_SECTION_TAB*)
     echo
     echo "No Echo360 section page is open in Safari."
@@ -341,6 +424,7 @@ if [ "${#todo[@]}" -gt 0 ]; then
   fi
   parakeet-mlx "${todo[@]}" \
     --model "$MODEL" \
+    --local-attention \
     --chunk-duration "$CHUNK" \
     --output-format txt \
     --output-dir "$TRANSCRIPTS"
